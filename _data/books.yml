@@ -8,16 +8,14 @@ books:
     - name: 1.2 GPIO输入模式配置
       slug: 2025-08-18-GPIO输入模式配置
       url: /2025/08/18/GPIO输入模式配置/
+    - name: 1.3 STM32F103C8T6
+      slug: 2025-08-21-stm32f103c8t6
+      url: /2025/08/21/stm32f103c8t6/      
   - name: 第2章：定时器应用
     sections:
     - name: 2.1 STM32定时器标准库配置流程
       slug: 2025-08-18-STM32定时器标准库配置流程
       url: /2025/08/18/STM32定时器标准库配置流程/
-  - name: 第1章
-    sections:
-    - name: 1.3 STM32F103C8T6
-      slug: 2025-08-21-stm32f103c8t6
-      url: /2025/08/21/stm32f103c8t6/
   name: STM32开发指南
 - chapters:
   - name: 第1章：数字基础
