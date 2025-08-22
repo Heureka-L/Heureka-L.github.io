@@ -32,3 +32,10 @@ books:
     - name: 2.1 浮点数表示
       slug: 2025-08-21-浮点数表示
       url: /2025/08/21/浮点数表示/
+- name: 语法指南
+  chapters:
+  - name: 第1章：MarkDown
+    sections:
+    - name: 1.1 Markdown语法指南
+      slug: 2025-08-22-markdown语法指南
+      url: /2025/08/22/markdown语法指南/
