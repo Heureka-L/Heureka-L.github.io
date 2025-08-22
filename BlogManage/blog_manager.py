@@ -9,6 +9,7 @@ import sys
 import os
 import yaml
 import re
+import json
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QTextEdit, 
@@ -19,15 +20,93 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt5.QtCore import Qt, QDate, QTimer
 from PyQt5.QtGui import QFont
 
+CONFIG_DIR = 'config'
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
+
 class BlogManager(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.books_file = os.path.join(self.project_root, '_data', 'books.yml')
-        self.posts_dir = os.path.join(self.project_root, '_posts')
+        self.project_root = None
+        self.books_file = None
+        self.posts_dir = None
+        self.setup_success = False
         
+        # 加载配置或进行首次设置
+        if not self.load_config_or_setup():
+            # 如果设置被取消，标记设置失败
+            self.setup_success = False
+            return
+            
+        self.setup_success = True
+            
         self.init_ui()
         self.load_books_data()
+        
+    def load_config_or_setup(self):
+        """加载配置或提示用户进行设置"""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    project_root = config.get('project_root')
+                    if project_root and self.validate_project_root(project_root):
+                        self.set_project_paths(project_root)
+                        return True
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+            
+        return self.prompt_for_project_root(is_initial_setup=True)
+        
+    def validate_project_root(self, path):
+        """验证项目根目录是否有效"""
+        return os.path.isdir(os.path.join(path, '_data')) and \
+               os.path.isdir(os.path.join(path, '_posts'))
+               
+    def set_project_paths(self, root_path):
+        """设置项目相关路径"""
+        self.project_root = root_path
+        self.books_file = os.path.join(root_path, '_data', 'books.yml')
+        self.posts_dir = os.path.join(root_path, '_posts')
+        
+    def save_config(self):
+        """保存配置到文件"""
+        config = {'project_root': self.project_root}
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+            
+    def prompt_for_project_root(self, is_initial_setup=False):
+        """提示用户选择项目根目录"""
+        if is_initial_setup:
+            result = QMessageBox.information(self, "首次运行设置", 
+                                         "请选择您的Jekyll博客项目根目录\n"
+                                         "该目录应包含 _data 和 _posts 文件夹。",
+                                         QMessageBox.Ok | QMessageBox.Cancel)
+            if result == QMessageBox.Cancel:
+                return False
+        
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "选择项目根目录",
+            os.path.expanduser("~")
+        )
+        
+        if directory:
+            if self.validate_project_root(directory):
+                self.set_project_paths(directory)
+                self.save_config()
+                if not is_initial_setup:
+                    QMessageBox.information(self, "成功", f"项目目录已更新为：\n{directory}")
+                    self.root_path_label.setText(directory)
+                    self.refresh_data()
+                return True
+            else:
+                QMessageBox.warning(self, "错误", 
+                                 "所选目录无效！\n请确保目录中包含 _data 和 _posts 文件夹。")
+                return self.prompt_for_project_root(is_initial_setup)
+        
+        if is_initial_setup:
+            QMessageBox.critical(self, "错误", "未选择项目目录，程序将退出。")
+        return False
         
     def init_ui(self):
         self.setWindowTitle('博客文章管理器')
@@ -41,10 +120,37 @@ class BlogManager(QMainWindow):
         self.tabs = QTabWidget()
         self.create_overview_tab()
         self.create_add_article_tab()
+        self.create_settings_tab()  # 添加设置标签页
         
         layout = QVBoxLayout()
         layout.addWidget(self.tabs)
         main_widget.setLayout(layout)
+        
+    def create_settings_tab(self):
+        """创建设置标签页"""
+        settings_widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 项目设置组
+        group = QGroupBox("项目设置")
+        form_layout = QFormLayout()
+        
+        # 显示当前项目路径
+        self.root_path_label = QLineEdit(self.project_root)
+        self.root_path_label.setReadOnly(True)
+        form_layout.addRow("当前项目根目录:", self.root_path_label)
+        
+        # 更改目录按钮
+        change_dir_btn = QPushButton("更改目录")
+        change_dir_btn.clicked.connect(lambda: self.prompt_for_project_root())
+        form_layout.addRow(change_dir_btn)
+        
+        group.setLayout(form_layout)
+        layout.addWidget(group)
+        layout.addStretch()
+        
+        settings_widget.setLayout(layout)
+        self.tabs.addTab(settings_widget, "设置")
         
     def create_overview_tab(self):
         """创建概览标签页"""
@@ -367,20 +473,36 @@ tags:
             self.update_books_data_exact(article_data)
             
             # 创建文章文件
-            self.create_article_file_exact(article_data)
+            filepath = self.create_article_file_exact(article_data)
             
             QMessageBox.information(self, "成功", "文章保存成功！")
+            
+            # 尝试用VS Code打开文件，如果失败则使用系统默认程序
+            try:
+                import subprocess
+                
+                # 首先尝试用VS Code打开
+                try:
+                    subprocess.Popen(['code', filepath])
+                except FileNotFoundError:
+                    # VS Code不可用，使用系统默认程序
+                    if sys.platform == 'win32':
+                        os.startfile(filepath)
+                    else:
+                        # 在Linux/Mac上使用xdg-open/open
+                        opener = 'xdg-open' if sys.platform.startswith('linux') else 'open'
+                        subprocess.call([opener, filepath])
+            except Exception as e:
+                print(f"无法打开文件：{str(e)}")
             
         except Exception as e:
             QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
 
     def update_books_data_exact(self, article_data):
         """精确更新books.yml文件，使用正确的数据结构"""
-        books_file = os.path.join("..", "_data", "books.yml")
-        
         try:
             # 读取现有数据
-            with open(books_file, 'r', encoding='utf-8') as f:
+            with open(self.books_file, 'r', encoding='utf-8') as f:
                 books_data = yaml.safe_load(f) or {'books': []}
         except FileNotFoundError:
             books_data = {'books': []}
@@ -442,8 +564,23 @@ tags:
             section_found['slug'] = article_data['slug']
             section_found['url'] = article_data['url']
 
+        # 对章节和小节进行排序
+        def extract_number(text):
+            # 从文本中提取数字，用于排序
+            match = re.search(r'第?(\d+)章?|(\d+)\.', text)
+            if match:
+                return int(match.group(1) or match.group(2))
+            return float('inf')
+        
+        # 对每本书的章节进行排序
+        for book in books_data['books']:
+            book['chapters'].sort(key=lambda x: extract_number(x['name']))
+            # 对每个章节的小节进行排序
+            for chapter in book['chapters']:
+                chapter['sections'].sort(key=lambda x: extract_number(x['name'].split()[0]))
+
         # 写入文件
-        with open(books_file, 'w', encoding='utf-8') as f:
+        with open(self.books_file, 'w', encoding='utf-8') as f:
             yaml.dump(books_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     def create_article_file_exact(self, article_data):
@@ -454,13 +591,13 @@ tags:
         
         # 文件名格式：2025-08-17-STM32-GPIO-configuration.md
         filename = f"{date_str}-{title_slug}.md"
-        filepath = os.path.join('..', '_posts', filename)
+        filepath = os.path.join(self.posts_dir, filename)
         
         # slug格式：2025-08-20-pwm（包含完整日期）
         slug = f"{date_str}-{title_slug}"
         
-        # URL路径格式：/2025/08/20/标题/（使用原始标题）
-        url_path = f"/{date_str.replace('-', '/')}/{article_data['title']}/"
+        # URL路径格式：/2025/08/20/标题/（使用slug）
+        url_path = f"/{date_str.replace('-', '/')}/{title_slug}/"
         
         # 构建YAML front matter - 使用book布局格式
         content = f"""---
@@ -548,11 +685,47 @@ tags:
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
+
     # 设置中文字体
     font = QFont("Microsoft YaHei", 9)
     app.setFont(font)
-    
+
+    # 首次运行判断：检查 config 文件夹是否存在
+    if not os.path.isdir(CONFIG_DIR):
+        # 提示用户选择项目根目录并保存到 config/config.json，然后提示重启并退出
+        QMessageBox.information(None, '首次运行设置', '首次运行：请在下一步选择您的项目根目录（包含 _data 和 _posts 文件夹）。')
+        directory = QFileDialog.getExistingDirectory(None, '选择项目根目录', os.path.expanduser('~'))
+        if directory:
+            if os.path.isdir(os.path.join(directory, '_data')) and os.path.isdir(os.path.join(directory, '_posts')):
+                try:
+                    os.makedirs(CONFIG_DIR, exist_ok=True)
+                    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+                        json.dump({'project_root': directory}, f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    QMessageBox.critical(None, '错误', f'保存配置失败：{e}')
+                    sys.exit(1)
+
+                # 使用非模态提示框并在 1 秒后退出
+                msg = QMessageBox()
+                msg.setWindowTitle('完成')
+                msg.setText('配置已保存。请重启软件以使更改生效。程序将在 1 秒后退出。')
+                msg.setStandardButtons(QMessageBox.NoButton)
+                msg.show()
+                QTimer.singleShot(1000, lambda: (msg.close(), sys.exit(0)))
+                app.exec_()
+                sys.exit(0)
+            else:
+                QMessageBox.critical(None, '无效目录', '所选目录不包含 _data 或 _posts，程序将退出。')
+                sys.exit(1)
+        else:
+            QMessageBox.critical(None, '未选择目录', '未选择项目目录，程序将退出。')
+            sys.exit(1)
+
+    # config 目录存在，正常启动
     manager = BlogManager()
-    manager.show()
-    sys.exit(app.exec_())
+    if manager.setup_success:
+        manager.show()
+        sys.exit(app.exec_())
+    else:
+        # 未完成设置，退出
+        sys.exit(0)
