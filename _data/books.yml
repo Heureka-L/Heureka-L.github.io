@@ -39,3 +39,8 @@ books:
     - name: 1.1 Markdown语法指南
       slug: 2025-08-22-markdown语法指南
       url: /2025/08/22/markdown语法指南/
+  - name: 第2章
+    sections:
+    - name: 2.1 HTML5语法教程
+      slug: 2025-08-22-html5语法教程
+      url: /2025/08/22/html5语法教程/
